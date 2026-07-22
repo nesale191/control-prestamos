@@ -52,12 +52,46 @@
             </form>
 
             <!-- RECUPERACIÓN -->
-            <form id="formForgot" onsubmit="handleForgotPassword(event)" class="space-y-4 hidden">
-                <p class="text-xs text-slate-600">Te enviaremos un correo para restablecer tu contraseña.</p>
-                <input type="email" id="forgotEmail" required placeholder="correo@ejemplo.com" class="w-full p-3 border rounded-lg text-sm">
-                <button type="submit" class="w-full bg-amber-600 text-white font-bold py-3 rounded-lg text-sm">Enviar Enlace</button>
-                <button type="button" onclick="showAuthView('login')" class="w-full text-xs text-slate-500 hover:underline text-center block">Volver a Login</button>
-            </form>
+            // FUNCION PARA SOLICITAR RECUPERACIÓN DE CONTRASEÑA
+async function handleForgotPassword(e) {
+    e.preventDefault();
+    const email = document.getElementById('forgotEmail').value.trim();
+    
+    // Le indicamos explícitamente a Supabase a dónde debe redirigir al usuario
+    const { error } = await db.auth.resetPasswordForEmail(email, {
+        redirectTo: 'https://nesale191.github.io/control-prestamos/'
+    });
+
+    if (error) {
+        document.getElementById('authError').innerText = 'Error: ' + error.message;
+        document.getElementById('authError').classList.remove('hidden');
+    } else {
+        document.getElementById('authSuccess').innerHTML = `
+            <p class="font-bold">📩 ¡Correo de recuperación enviado!</p>
+            <p>Revisa tu bandeja de entrada o Spam en <strong>${email}</strong> y haz clic en el enlace actualizado.</p>
+        `;
+        document.getElementById('authSuccess').classList.remove('hidden');
+        document.getElementById('formForgot').classList.add('hidden');
+    }
+}
+
+// CAPTURAR EL TOKEN CUANDO EL USUARIO HAGA CLIC EN EL CORREO
+db.auth.onAuthStateChange(async (event, session) => {
+    if (event === 'PASSWORD_RECOVERY') {
+        const newPassword = prompt("🔐 Ingresa tu nueva contraseña:");
+        if (newPassword && newPassword.length >= 6) {
+            const { error } = await db.auth.updateUser({ password: newPassword });
+            if (!error) {
+                alert("✅ ¡Contraseña actualizada con éxito! Ya puedes iniciar sesión con tu nueva clave.");
+                location.href = 'https://nesale191.github.io/control-prestamos/';
+            } else {
+                alert("Error al actualizar la contraseña: " + error.message);
+            }
+        } else {
+            alert("La contraseña debe tener al menos 6 caracteres.");
+        }
+    }
+});
 
             <!-- AUTO REGISTRO CLIENTE -->
             <form id="formRegister" onsubmit="handleClientRegister(event)" class="space-y-3 hidden">
