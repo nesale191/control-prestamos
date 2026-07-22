@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Control de Préstamos - Sistema Multi-Rol</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Supabase Client JS -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        @media print {
+            body * { visibility: hidden; }
+            .printable, .printable * { visibility: visible; }
+            .printable { position: absolute; left: 0; top: 0; width: 100%; }
+            .no-print { display: none !important; }
+        }
+        .tab-active { border-bottom: 3px solid #2563eb; color: #2563eb; font-weight: bold; }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 font-sans min-h-screen">
+
+    <!-- PANTALLA DE LOGIN (Visible si no hay sesión iniciada) -->
+    <div id="loginScreen" class="min-h-screen flex items-center justify-center bg-slate-900 p-4">
+        <div class="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full space-y-6">
+            <div class="text-center space-y-2">
+                <div class="inline-block p-3 bg-blue-100 text-blue-600 rounded-full">
+                    <i class="fa-solid fa-shield-halved text-3xl"></i>
+                </div>
+                <h2 class="text-2xl font-bold text-slate-800">Acceso al Sistema</h2>
+                <p class="text-xs text-slate-500">Gestión de Préstamos, Cobranza y Comisiones</p>
+            </div>
+
+            <form onsubmit="handleLogin(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">Correo Electrónico *</label>
+                    <input type="email" id="loginEmail" required placeholder="usuario@ejemplo.com" class="w-full p-3 border rounded-lg text-sm outline-none focus:border-blue-600">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">Contraseña *</label>
+                    <input type="password" id="loginPassword" required placeholder="••••••••" class="w-full p-3 border rounded-lg text-sm outline-none focus:border-blue-600">
+                </div>
+                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg text-sm transition shadow-lg">
+                    Iniciar Sesión
+                </button>
+            </form>
+            <p id="loginError" class="text-xs text-rose-600 text-center font-semibold hidden"></p>
+        </div>
+    </div>
+
+    <!-- APP PRINCIPAL (Oculta hasta iniciar sesión) -->
+    <div id="appScreen" class="hidden">
+
+        <!-- Header / Navbar -->
+        <header class="bg-slate-900 text-white shadow-md no-print">
+            <div class="max-w-7xl mx-auto px-4 py-4 flex flex-col md:flex-row justify-between items-center gap-4">
+                <div class="flex items-center gap-3">
+                    <i class="fa-solid fa-hand-holding-dollar text-emerald-400 text-3xl"></i>
+                    <div>
+                        <h1 class="text-xl font-bold tracking-wide">Control de Préstamos Pro</h1>
+                        <p class="text-xs text-slate-400">Sincronizado en la nube (México)</p>
+                    </div>
+                </div>
+
+                <!-- User Badge info -->
+                <div class="flex items-center gap-4">
+                    <div class="text-right">
+                        <span id="userBadgeRole" class="bg-blue-900 text-blue-200 text-[10px] font-bold px-2 py-0.5 rounded uppercase block">ROL</span>
+                        <span id="userBadgeName" class="text-xs font-semibold text-slate-200">Usuario</span>
+                    </div>
+                    <button onclick="handleLogout()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-3 py-2 rounded-lg border border-slate-700 flex items-center gap-2">
+                        <i class="fa-solid fa-right-from-bracket text-rose-400"></i> Salir
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Dynamic Navigation Tabs -->
+        <div class="bg-white border-b border-slate-200 no-print">
+            <div class="max-w-7xl mx-auto px-4 flex overflow-x-auto gap-8 text-sm text-slate-600">
+                <button onclick="switchTab('clientes')" id="tab-clientes" class="py-3 px-1 tab-active flex items-center gap-2 whitespace-nowrap role-admin">
+                    <i class="fa-solid fa-users"></i> Clientes
+                </button>
+                <button onclick="switchTab('nuevo-prestamo')" id="tab-nuevo-prestamo" class="py-3 px-1 flex items-center gap-2 whitespace-nowrap role-admin role-cliente">
+                    <i class="fa-solid fa-plus-circle"></i> Nuevo Préstamo
+                </button>
+                <button onclick="switchTab('prestamos')" id="tab-prestamos" class="py-3 px-1 flex items-center gap-2 whitespace-nowrap role-admin role-cobrador role-cliente">
+                    <i class="fa-solid fa-file-invoice-dollar"></i> Préstamos
+                </button>
+                <button onclick="switchTab('pagos')" id="tab-pagos" class="py-3 px-1 flex items-center gap-2 whitespace-nowrap role-admin role-cobrador role-cliente">
+                    <i class="fa-solid fa-money-bill-transfer"></i> Registrar / Enviar Pago
+                </button>
+                <button onclick="switchTab('validaciones')" id="tab-validaciones" class="py-3 px-1 flex items-center gap-2 whitespace-nowrap role-admin role-cobrador">
+                    <i class="fa-solid fa-clipboard-check"></i> Validar Pagos
+                </button>
+                <button onclick="switchTab('intermediarios')" id="tab-intermediarios" class="py-3 px-1 flex items-center gap-2 whitespace-nowrap role-admin role-cobrador">
+                    <i class="fa-solid fa-user-tie"></i> Cobradores & Comisiones
+                </button>
+                <button onclick="switchTab('bitacora')" id="tab-bitacora" class="py-3 px-1 flex items-center gap-2 whitespace-nowrap role-admin">
+                    <i class="fa-solid fa-list-check"></i> Bitácora Auditable
+                </button>
+            </div>
+        </div>
+
+        <!-- Main Container -->
+        <main class="max-w-7xl mx-auto px-4 py-6 no-print">
+
+            <!-- ALERTA BILLETES FALSOS PARA COBRADORES -->
+            <div id="alertBilletesFalsos" class="hidden mb-6 bg-amber-50 border-l-4 border-amber-500 p-4 rounded-r-xl shadow-sm space-y-1">
+                <div class="flex items-center gap-2 text-amber-800 font-bold text-sm">
+                    <i class="fa-solid fa-triangle-exclamation text-amber-600 text-lg"></i>
+                    <span>AVISO OBLIGATORIO DE RESPONSABILIDAD SOBRE EFECTIVO</span>
+                </div>
+                <p class="text-xs text-amber-700">
+                    Al recibir dinero en efectivo, el cobrador es responsable directo de verificar la autenticidad del papel moneda. <strong>En caso de recibir billetes falsos, el importe correspondiente será cubierto directamente por el cobrador por negligencia en la revisión.</strong>
+                </p>
+            </div>
+
+            <!-- TAB: CLIENTES -->
+            <section id="sec-clientes" class="space-y-6">
+                <div class="flex justify-between items-center">
+                    <h2 class="text-xl font-bold text-slate-800">Base de Datos de Clientes</h2>
+                    <button onclick="openClientModal()" class="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded-lg shadow font-medium flex items-center gap-2">
+                        <i class="fa-solid fa-user-plus"></i> Registrar Cliente
+                    </button>
+                </div>
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <table class="w-full text-left text-sm text-slate-600">
+                        <thead class="bg-slate-50 text-slate-700 uppercase text-xs">
+                            <tr>
+                                <th class="p-3">Nombre Completo</th>
+                                <th class="p-3">INE / CURP</th>
+                                <th class="p-3">Teléfono</th>
+                                <th class="p-3">Dirección</th>
+                            </tr>
+                        </thead>
+                        <tbody id="clientTableBody" class="divide-y divide-slate-100"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- TAB: NUEVO PRESTAMO -->
+            <section id="sec-nuevo-prestamo" class="hidden max-w-3xl mx-auto space-y-6">
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+                    <h2 class="text-xl font-bold text-slate-800 border-b pb-3 flex items-center gap-2">
+                        <i class="fa-solid fa-file-signature text-blue-600"></i> Solicitud de Préstamo
+                    </h2>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">Cliente *</label>
+                            <select id="loanClientSelect" class="w-full p-2.5 border rounded-lg text-sm bg-slate-50"></select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">Fecha de Solicitud *</label>
+                            <input type="date" id="loanDate" class="w-full p-2.5 border rounded-lg text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">Monto Solicitado ($ MXN) *</label>
+                            <input type="number" id="loanAmount" min="1000" step="500" value="1000" class="w-full p-2.5 border rounded-lg text-sm">
+                        </div>
+                        <div class="role-admin role-cobrador">
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">Cobrador Asignado</label>
+                            <select id="loanIntermediarySelect" class="w-full p-2.5 border rounded-lg text-sm bg-slate-50"></select>
+                        </div>
+                    </div>
+
+                    <!-- CLABE INTERBANCARIA / TARJETA DE DEBITO -->
+                    <div class="border-t pt-4 space-y-2">
+                        <h3 class="text-sm font-bold text-slate-700">Datos Bancarios para Dispersión / Depósito</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs text-slate-600 mb-1">CLABE Interbancaria (18 dígitos) o Tarjeta Débito</label>
+                                <input type="text" id="loanClabe" placeholder="Ej. 012180004567890123" class="w-full p-2.5 border rounded-lg text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-slate-600 mb-1">Banco Receptores</label>
+                                <input type="text" id="loanBanco" placeholder="Ej. BBVA, Banorte, Spin" class="w-full p-2.5 border rounded-lg text-sm">
+                            </div>
+                        </div>
+                        <p class="text-[11px] text-amber-700 bg-amber-50 p-2 rounded border border-amber-200">
+                            ⚠️ <strong>Aviso legal:</strong> Verifique sus datos bancarios. Cualquier error en la CLABE o número de tarjeta asentado será bajo estricto riesgo del cliente, liberando a la administración de giros erróneos.
+                        </p>
+                    </div>
+
+                    <!-- AVAL -->
+                    <div class="border-t pt-4 space-y-2">
+                        <h3 class="text-sm font-bold text-slate-700">Datos del Aval</h3>
+                        <input type="text" id="avalData" placeholder="Nombre completo, INE y Dirección del Aval" class="w-full p-2.5 border rounded-lg text-sm">
+                    </div>
+
+                    <div class="flex justify-end pt-4 border-t">
+                        <button onclick="saveLoan()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-6 py-2.5 rounded-lg shadow text-sm flex items-center gap-2">
+                            <i class="fa-solid fa-paper-plane"></i> Enviar Solicitud de Préstamo
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB: PRESTAMOS -->
+            <section id="sec-prestamos" class="hidden space-y-6">
+                <h2 class="text-xl font-bold text-slate-800">Préstamos Registrados</h2>
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <table class="w-full text-left text-sm text-slate-600">
+                        <thead class="bg-slate-50 text-slate-700 uppercase text-xs">
+                            <tr>
+                                <th class="p-3">ID / Fecha</th>
+                                <th class="p-3">Cliente ID</th>
+                                <th class="p-3">Monto Inicial</th>
+                                <th class="p-3">Saldo Capital</th>
+                                <th class="p-3">Interés Fijo</th>
+                                <th class="p-3 text-center">Documentos</th>
+                            </tr>
+                        </thead>
+                        <tbody id="loanTableBody" class="divide-y divide-slate-100"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- TAB: REGISTRAR / ENVIAR PAGO -->
+            <section id="sec-pagos" class="hidden max-w-3xl mx-auto space-y-6">
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+                    <h2 class="text-xl font-bold text-slate-800 border-b pb-3 flex items-center gap-2">
+                        <i class="fa-solid fa-receipt text-emerald-600"></i> Registrar Abono u Interés
+                    </h2>
+
+                    <!-- Cuentas para depósito del cliente -->
+                    <div id="clientePayInfo" class="hidden bg-blue-50 border border-blue-200 p-4 rounded-xl space-y-2 text-xs">
+                        <p class="font-bold text-blue-900 text-sm">Cuentas Autorizadas para Transferencia:</p>
+                        <p><strong>Banco:</strong> BBVA México &nbsp;|&nbsp; <strong>CLABE:</strong> 012 180 0123456789 01</p>
+                        <p><strong>Beneficiario:</strong> Control de Préstamos Pro</p>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">Préstamo *</label>
+                            <select id="payLoanSelect" class="w-full p-2.5 border rounded-lg text-sm bg-slate-50"></select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">Fecha de Pago *</label>
+                            <input type="date" id="payDate" class="w-full p-2.5 border rounded-lg text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">Monto Pagado ($ MXN) *</label>
+                            <input type="number" id="payAmount" min="1" step="50" class="w-full p-2.5 border rounded-lg text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">Método de Pago *</label>
+                            <select id="payMethod" class="w-full p-2.5 border rounded-lg text-sm">
+                                <option value="Transferencia">Transferencia Bancaria</option>
+                                <option value="Efectivo">Efectivo</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- SUBIR COMPROBANTE DE PAGO -->
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">Adjuntar Foto / Comprobante de Pago (PDF, JPG, PNG)</label>
+                        <input type="file" id="payFile" accept="image/*,.pdf" class="w-full p-2 border rounded-lg text-xs">
+                    </div>
+
+                    <div class="flex justify-end pt-4 border-t">
+                        <button onclick="processPayment()" class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-6 py-2.5 rounded-lg text-sm flex items-center gap-2">
+                            <i class="fa-solid fa-upload"></i> Enviar Pago a Validación
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB: VALIDACIÓN DE PAGOS -->
+            <section id="sec-validaciones" class="hidden space-y-6">
+                <h2 class="text-xl font-bold text-slate-800">Pagos Pendientes de Validación</h2>
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <table class="w-full text-left text-sm text-slate-600">
+                        <thead class="bg-slate-50 text-slate-700 uppercase text-xs">
+                            <tr>
+                                <th class="p-3">Fecha</th>
+                                <th class="p-3">Préstamo</th>
+                                <th class="p-3">Monto</th>
+                                <th class="p-3">Método</th>
+                                <th class="p-3">Comprobante</th>
+                                <th class="p-3 text-right">Acción</th>
+                            </tr>
+                        </thead>
+                        <tbody id="valTableBody" class="divide-y divide-slate-100"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- TAB: INTERMEDIARIOS & COMISIONES -->
+            <section id="sec-intermediarios" class="hidden space-y-6">
+                <div class="flex justify-between items-center">
+                    <h2 class="text-xl font-bold text-slate-800">Cobradores y Comisiones</h2>
+                    <button onclick="openIntermediaryModal()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm px-4 py-2 rounded-lg shadow font-medium flex items-center gap-2 role-admin">
+                        <i class="fa-solid fa-user-plus"></i> Registrar Cobrador
+                    </button>
+                </div>
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <table class="w-full text-left text-sm text-slate-600">
+                        <thead class="bg-slate-50 text-slate-700 uppercase text-xs">
+                            <tr>
+                                <th class="p-3">Nombre</th>
+                                <th class="p-3">Teléfono</th>
+                                <th class="p-3">% Comisión</th>
+                            </tr>
+                        </thead>
+                        <tbody id="intermediaryTableBody" class="divide-y divide-slate-100"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- TAB: BITACORA DE AUDITORIA -->
+            <section id="sec-bitacora" class="hidden space-y-6">
+                <h2 class="text-xl font-bold text-slate-800">Bitácora de Movimientos (Auditable)</h2>
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <table class="w-full text-left text-sm text-slate-600">
+                        <thead class="bg-slate-50 text-slate-700 uppercase text-xs">
+                            <tr>
+                                <th class="p-3">Fecha / Hora</th>
+                                <th class="p-3">Usuario (3 Caracteres)</th>
+                                <th class="p-3">Acción</th>
+                                <th class="p-3">Detalles</th>
+                            </tr>
+                        </thead>
+                        <tbody id="bitacoraTableBody" class="divide-y divide-slate-100"></tbody>
+                    </table>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- MODAL CLIENTE -->
+    <div id="modalClient" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-xl shadow-xl max-w-md w-full p-6 space-y-4">
+            <h3 class="text-lg font-bold text-slate-800 border-b pb-2">Nuevo Cliente</h3>
+            <div class="space-y-3">
+                <input type="text" id="clientName" placeholder="Nombre completo" class="w-full p-2 border rounded-lg text-sm">
+                <input type="text" id="clientIne" placeholder="INE / CURP" class="w-full p-2 border rounded-lg text-sm">
+                <input type="text" id="clientPhone" placeholder="Teléfono" class="w-full p-2 border rounded-lg text-sm">
+                <input type="text" id="clientAddress" placeholder="Dirección completa" class="w-full p-2 border rounded-lg text-sm">
+            </div>
+            <div class="flex justify-end gap-2 pt-3 border-t">
+                <button onclick="closeClientModal()" class="px-4 py-2 border rounded-lg text-sm">Cancelar</button>
+                <button onclick="saveClient()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium">Guardar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL INTERMEDIARIO -->
+    <div id="modalIntermediary" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-xl shadow-xl max-w-md w-full p-6 space-y-4">
+            <h3 class="text-lg font-bold text-slate-800 border-b pb-2">Nuevo Cobrador</h3>
+            <div class="space-y-3">
+                <input type="text" id="interName" placeholder="Nombre completo" class="w-full p-2 border rounded-lg text-sm">
+                <input type="text" id="interPhone" placeholder="Teléfono" class="w-full p-2 border rounded-lg text-sm">
+                <input type="number" id="interComm" value="20" placeholder="% Comisión" class="w-full p-2 border rounded-lg text-sm">
+            </div>
+            <div class="flex justify-end gap-2 pt-3 border-t">
+                <button onclick="closeIntermediaryModal()" class="px-4 py-2 border rounded-lg text-sm">Cancelar</button>
+                <button onclick="saveIntermediary()" class="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium">Guardar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL IMPRESION CONTRATO / PAGARE -->
+    <div id="modalDocument" class="fixed inset-0 bg-slate-900/80 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-xl shadow-2xl max-w-3xl w-full p-8 my-8 relative printable">
+            <div class="no-print flex justify-between items-center mb-6 pb-4 border-b">
+                <h3 class="font-bold text-slate-800 text-lg">Documento Legal</h3>
+                <div class="flex gap-2">
+                    <button onclick="window.print()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-xs font-bold">Imprimir / PDF</button>
+                    <button onclick="closeDocModal()" class="bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-xs font-bold">Cerrar</button>
+                </div>
+            </div>
+            <div id="docPrintContent" class="text-slate-900 leading-relaxed text-sm space-y-6"></div>
+        </div>
+    </div>
+
+    <!-- LÓGICA CON SUPABASE Y ROLES -->
+    <script>
+        const SUPABASE_URL = 'https://uascngatchubxfymvyzs.supabase.co';
+        const SUPABASE_KEY = 'sb_publishable_3TqP8Ydihrgue2ClIlkYOQ_3RZv6lNM';
+        const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        let currentUser = null;
+        let userProfile = { rol: 'cliente', iniciales: 'USR' };
+
+        // --- MANEJO DE SESIÓN Y LOGIN ---
+        async function handleLogin(e) {
+            e.preventDefault();
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+
+            const { data, error } = await db.auth.signInWithPassword({ email, password });
+
+            if (error) {
+                document.getElementById('loginError').innerText = error.message;
+                document.getElementById('loginError').classList.remove('hidden');
+            } else {
+                currentUser = data.user;
+                await loadUserProfile();
+                initApp();
+            }
+        }
+
+        async function handleLogout() {
+            await db.auth.signOut();
+            location.reload();
+        }
+
+        async function loadUserProfile() {
+            const { data, error } = await db.from('Perfiles').select('*').eq('id', currentUser.id).single();
+            if (data) {
+                userProfile = data;
+            } else {
+                userProfile = { rol: 'admin', iniciales: 'ADM' }; // Default fallback
+            }
+        }
+
+        function initApp() {
+            document.getElementById('loginScreen').classList.add('hidden');
+            document.getElementById('appScreen').classList.remove('hidden');
+
+            document.getElementById('userBadgeName').innerText = currentUser.email;
+            document.getElementById('userBadgeRole').innerText = `${userProfile.rol} [${userProfile.iniciales}]`;
+
+            // Configurar vistas según el Rol
+            if (userProfile.rol === 'cobrador') {
+                document.getElementById('alertBilletesFalsos').classList.remove('hidden');
+            }
+            if (userProfile.rol === 'cliente') {
+                document.getElementById('clientePayInfo').classList.remove('hidden');
+            }
+
+            // Ocultar botones de pestañas según permisos
+            document.querySelectorAll('.role-admin, .role-cobrador, .role-cliente').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll(`.role-${userProfile.rol}`).forEach(el => el.classList.remove('hidden'));
+
+            document.getElementById('loanDate').value = new Date().toISOString().slice(0,10);
+            document.getElementById('payDate').value = new Date().toISOString().slice(0,10);
+
+            renderAll();
+        }
+
+        function switchTab(tab) {
+            ['clientes', 'nuevo-prestamo', 'prestamos', 'pagos', 'validaciones', 'intermediarios', 'bitacora'].forEach(t => {
+                document.getElementById(`sec-${t}`)?.classList.add('hidden');
+                document.getElementById(`tab-${t}`)?.classList.remove('tab-active');
+            });
+            document.getElementById(`sec-${tab}`)?.classList.remove('hidden');
+            document.getElementById(`tab-${tab}`)?.classList.add('tab-active');
+        }
+
+        // --- BITACORA AUDITABLE ---
+        async function logActivity(accion, detalles) {
+            await db.from('Bitacora').insert([{
+                usuario_iniciales: userProfile.iniciales,
+                usuario_id: currentUser.id,
+                accion,
+                detalles
+            }]);
+        }
+
+        async function renderBitacora() {
+            const { data } = await db.from('Bitacora').select('*').order('fecha', { ascending: false });
+            const tbody = document.getElementById('bitacoraTableBody');
+            tbody.innerHTML = '';
+            if(data) {
+                data.forEach(b => {
+                    tbody.innerHTML += `<tr><td class="p-3 text-xs">${new Date(b.fecha).toLocaleString()}</td><td class="p-3 font-bold text-blue-600">${b.usuario_iniciales}</td><td class="p-3">${b.accion}</td><td class="p-3 text-xs">${b.detalles}</td></tr>`;
+                });
+            }
+        }
+
+        // --- CLIENTES ---
+        function openClientModal() { document.getElementById('modalClient').classList.remove('hidden'); }
+        function closeClientModal() { document.getElementById('modalClient').classList.add('hidden'); }
+
+        async function saveClient() {
+            const nombre = document.getElementById('clientName').value.trim();
+            const ine = document.getElementById('clientIne').value.trim();
+            const telefono = document.getElementById('clientPhone').value.trim();
+            const direccion = document.getElementById('clientAddress').value.trim();
+
+            const { error } = await db.from('Clientes').insert([{ nombre, INE: ine, Telefono: telefono, Direccion: direccion }]);
+            if (!error) {
+                await logActivity('CREO_CLIENTE', `Registró al cliente: ${nombre}`);
+                closeClientModal();
+                renderClients();
+            }
+        }
+
+        async function renderClients() {
+            const { data } = await db.from('Clientes').select('*');
+            const tbody = document.getElementById('clientTableBody');
+            tbody.innerHTML = '';
+            if (data) {
+                data.forEach(c => {
+                    tbody.innerHTML += `<tr><td class="p-3 font-semibold">${c.nombre}</td><td class="p-3">${c.INE}</td><td class="p-3">${c.Telefono}</td><td class="p-3">${c.Direccion}</td></tr>`;
+                });
+                populateClientSelect(data);
+            }
+        }
+
+        // --- PRESTAMOS ---
+        async function saveLoan() {
+            const cliente_id = document.getElementById('loanClientSelect').value;
+            const fecha = document.getElementById('loanDate').value;
+            const monto = parseFloat(document.getElementById('loanAmount').value) || 0;
+            const inter_id = document.getElementById('loanIntermediarySelect').value || null;
+            const aval = document.getElementById('avalData').value.trim();
+            const clabe = document.getElementById('loanClabe').value.trim();
+            const banco = document.getElementById('loanBanco').value.trim();
+
+            const interes_fijo = Math.floor(monto / 1000) * 100;
+
+            const { error } = await db.from('Prestamos').insert([{
+                Cliente_Id: cliente_id,
+                Monto: monto,
+                Saldo_Capital: monto,
+                Interes_Fijo: interes_fijo,
+                Esquema: 1,
+                Intermediario_Id: inter_id,
+                Fecha: fecha,
+                Aval_Datos: `Aval: ${aval} | CLABE: ${clabe} (${banco})`
+            }]);
+
+            if (!error) {
+                await logActivity('SOLICITO_PRESTAMO', `Monto: $${monto} MXN para Cliente ID: ${cliente_id}`);
+                alert('Préstamo registrado.');
+                renderLoans();
+                switchTab('prestamos');
+            }
+        }
+
+        async function renderLoans() {
+            const { data } = await db.from('Prestamos').select('*');
+            const tbody = document.getElementById('loanTableBody');
+            tbody.innerHTML = '';
+            if (data) {
+                data.forEach(p => {
+                    tbody.innerHTML += `<tr><td class="p-3">#${p.id} (${p.Fecha})</td><td class="p-3">Cliente #${p.Cliente_Id}</td><td class="p-3">$${p.Monto} MXN</td><td class="p-3 font-bold">$${p.Saldo_Capital} MXN</td><td class="p-3 text-emerald-600">$${p.Interes_Fijo} MXN</td><td class="p-3 text-center"><button onclick="viewContract(${p.id})" class="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">Contrato</button></td></tr>`;
+                });
+                populateLoanSelect(data);
+            }
+        }
+
+        // --- CONTRATO LEGAL CON CLÁUSULA DE CLABE ---
+        function viewContract(id) {
+            document.getElementById('docPrintContent').innerHTML = `
+                <div class="text-center border-b pb-3 mb-3"><h2 class="font-bold text-lg">CONTRATO DE PRÉSTAMO MERCANTIL</h2></div>
+                <p class="text-xs">Por medio del presente contrato, EL ACREEDOR otorga en préstamo la suma convenida al DEUDOR bajo la regla de $100 pesos de interés por cada $1,000 pesos solicitados.</p>
+                <h4 class="font-bold text-xs uppercase mt-3">CLÁUSULA SÉPTIMA: DISPERSIÓN Y RESPONSABILIDAD BANCARIA</h4>
+                <p class="text-xs bg-slate-50 p-2 border rounded">
+                    EL DEUDOR manifiesta bajo protesta de decir verdad que los datos bancarios (CLABE/Tarjeta) asentados son correctos y de su titularidad. <strong>Cualquier error en la CLABE o número de cuenta será bajo estricto riesgo del DEUDOR</strong>, liberando a la administración de giros a cuentas erróneas.
+                </p>
+                <div class="grid grid-cols-2 gap-8 pt-12 text-center text-xs">
+                    <div class="border-t border-slate-800 pt-1">FIRMA DEL DEUDOR</div>
+                    <div class="border-t border-slate-800 pt-1">FIRMA DEL AVAL</div>
+                </div>
+            `;
+            document.getElementById('modalDocument').classList.remove('hidden');
+        }
+        function closeDocModal() { document.getElementById('modalDocument').classList.add('hidden'); }
+
+        // --- PAGOS & COMPROBANTES ---
+        async function processPayment() {
+            const prestamo_id = document.getElementById('payLoanSelect').value;
+            const fecha = document.getElementById('payDate').value;
+            const monto = parseFloat(document.getElementById('payAmount').value) || 0;
+            const metodo = document.getElementById('payMethod').value;
+
+            await db.from('Pagos').insert([{
+                Prestamo_Id: prestamo_id,
+                Monto_Total: monto,
+                Interes_Pagado: 0,
+                Capital_Pagado: 0,
+                Fecha: fecha,
+                Metodo: metodo
+            }]);
+
+            await logActivity('ENVIO_PAGO', `Pago enviado de $${monto} MXN para préstamo #${prestamo_id}`);
+            alert('Pago registrado en proceso de validación.');
+            renderValidaciones();
+        }
+
+        async function renderValidaciones() {
+            const { data } = await db.from('Pagos').select('*');
+            const tbody = document.getElementById('valTableBody');
+            tbody.innerHTML = '';
+            if(data) {
+                data.forEach(pg => {
+                    tbody.innerHTML += `<tr><td class="p-3 text-xs">${pg.Fecha}</td><td class="p-3">#${pg.Prestamo_Id}</td><td class="p-3 font-bold">$${pg.Monto_Total} MXN</td><td class="p-3">${pg.Metodo}</td><td class="p-3 text-xs text-blue-600">Adjunto</td><td class="p-3 text-right"><button onclick="validarPago(${pg.id}, ${pg.Prestamo_Id}, ${pg.Monto_Total})" class="bg-emerald-600 text-white text-xs px-2 py-1 rounded font-bold">Validar</button></td></tr>`;
+                });
+            }
+        }
+
+        async function validarPago(pagoId, prestamoId, monto) {
+            const { data: p } = await db.from('Prestamos').select('*').eq('id', prestamoId).single();
+            if(!p) return;
+
+            let interes = monto <= p.Interes_Fijo ? monto : p.Interes_Fijo;
+            let capital = monto > p.Interes_Fijo ? monto - p.Interes_Fijo : 0;
+            let nuevoSaldo = Math.max(0, p.Saldo_Capital - capital);
+
+            await db.from('Prestamos').update({ Saldo_Capital: nuevoSaldo }).eq('id', prestamoId);
+            await logActivity('VALIDO_PAGO', `Aprobó pago #${pagoId}. Nuevo saldo préstamo: $${nuevoSaldo}`);
+            alert('Pago validado y saldo actualizado.');
+            renderLoans();
+            renderValidaciones();
+        }
+
+        // --- INTERMEDIARIOS ---
+        function openIntermediaryModal() { document.getElementById('modalIntermediary').classList.remove('hidden'); }
+        function closeIntermediaryModal() { document.getElementById('modalIntermediary').classList.add('hidden'); }
+
+        async function saveIntermediary() {
+            const nombre = document.getElementById('interName').value;
+            const telefono = document.getElementById('interPhone').value;
+            const comision = parseFloat(document.getElementById('interComm').value) || 0;
+
+            await db.from('Intermediarios').insert([{ nombre, telefono, Comision_Porcentaje: comision }]);
+            await logActivity('CREO_COBRADOR', `Registró al cobrador: ${nombre}`);
+            closeIntermediaryModal();
+            renderIntermediaries();
+        }
+
+        async function renderIntermediaries() {
+            const { data } = await db.from('Intermediarios').select('*');
+            const tbody = document.getElementById('intermediaryTableBody');
+            tbody.innerHTML = '';
+            if(data) {
+                data.forEach(i => {
+                    tbody.innerHTML += `<tr><td class="p-3 font-semibold">${i.nombre}</td><td class="p-3">${i.telefono}</td><td class="p-3">${i.Comision_Porcentaje}%</td></tr>`;
+                });
+                populateInterSelect(data);
+            }
+        }
+
+        // --- AUXILIARES SELECTS ---
+        function populateClientSelect(cl) { document.getElementById('loanClientSelect').innerHTML = cl.map(c => `<option value="${c.id}">${c.nombre} (${c.INE})</option>`).join(''); }
+        function populateInterSelect(it) { document.getElementById('loanIntermediarySelect').innerHTML = '<option value="">-- Sin Cobrador --</option>' + it.map(i => `<option value="${i.id}">${i.nombre}</option>`).join(''); }
+        function populateLoanSelect(pr) { document.getElementById('payLoanSelect').innerHTML = pr.map(p => `<option value="${p.id}">Préstamo #${p.id} - Saldo: $${p.Saldo_Capital}</option>`).join(''); }
+
+        function renderAll() {
+            renderClients();
+            renderLoans();
+            renderIntermediaries();
+            renderValidaciones();
+            renderBitacora();
+        }
+    </script>
+</body>
+</html>
