@@ -527,14 +527,18 @@
         }
 
         async function loadUserProfile() {
-            const { data } = await db.from('Perfiles').select('*').eq('id', currentUser.id).single();
-            if (data) {
-                userProfile = data;
-            } else {
-                // Si es el primer usuario histórico que no existe en Perfiles, se asume cliente
-                userProfile = { rol: 'cliente', iniciales: 'CLI', cliente_id: null, bloqueado: false };
-            }
+    const { data, error } = await db.from('Perfiles').select('*').eq('id', currentUser.id).single();
+    if (data && data.rol) {
+        userProfile = data;
+    } else {
+        // Si no existe perfil en la tabla, verificar por correo o asignar admin por defecto si es el usuario nesale191
+        if (currentUser.email === 'nesale191@hotmail.com' || currentUser.email === 'nesale191@gmail.com') {
+            userProfile = { rol: 'admin', iniciales: 'ADM', bloqueado: false };
+        } else {
+            userProfile = { rol: 'cliente', iniciales: 'CLI', cliente_id: null, bloqueado: false };
         }
+    }
+}
 
         function initApp() {
             document.getElementById('loginScreen').classList.add('hidden');
