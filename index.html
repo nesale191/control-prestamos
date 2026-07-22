@@ -52,46 +52,12 @@
             </form>
 
             <!-- RECUPERACIÓN -->
-            // FUNCION PARA SOLICITAR RECUPERACIÓN DE CONTRASEÑA
-async function handleForgotPassword(e) {
-    e.preventDefault();
-    const email = document.getElementById('forgotEmail').value.trim();
-    
-    // Le indicamos explícitamente a Supabase a dónde debe redirigir al usuario
-    const { error } = await db.auth.resetPasswordForEmail(email, {
-        redirectTo: 'https://nesale191.github.io/control-prestamos/'
-    });
-
-    if (error) {
-        document.getElementById('authError').innerText = 'Error: ' + error.message;
-        document.getElementById('authError').classList.remove('hidden');
-    } else {
-        document.getElementById('authSuccess').innerHTML = `
-            <p class="font-bold">📩 ¡Correo de recuperación enviado!</p>
-            <p>Revisa tu bandeja de entrada o Spam en <strong>${email}</strong> y haz clic en el enlace actualizado.</p>
-        `;
-        document.getElementById('authSuccess').classList.remove('hidden');
-        document.getElementById('formForgot').classList.add('hidden');
-    }
-}
-
-// CAPTURAR EL TOKEN CUANDO EL USUARIO HAGA CLIC EN EL CORREO
-db.auth.onAuthStateChange(async (event, session) => {
-    if (event === 'PASSWORD_RECOVERY') {
-        const newPassword = prompt("🔐 Ingresa tu nueva contraseña:");
-        if (newPassword && newPassword.length >= 6) {
-            const { error } = await db.auth.updateUser({ password: newPassword });
-            if (!error) {
-                alert("✅ ¡Contraseña actualizada con éxito! Ya puedes iniciar sesión con tu nueva clave.");
-                location.href = 'https://nesale191.github.io/control-prestamos/';
-            } else {
-                alert("Error al actualizar la contraseña: " + error.message);
-            }
-        } else {
-            alert("La contraseña debe tener al menos 6 caracteres.");
-        }
-    }
-});
+            <form id="formForgot" onsubmit="handleForgotPassword(event)" class="space-y-4 hidden">
+                <p class="text-xs text-slate-600">Te enviaremos un correo para restablecer tu contraseña.</p>
+                <input type="email" id="forgotEmail" required placeholder="correo@ejemplo.com" class="w-full p-3 border rounded-lg text-sm">
+                <button type="submit" class="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 rounded-lg text-sm">Enviar Enlace</button>
+                <button type="button" onclick="showAuthView('login')" class="w-full text-xs text-slate-500 hover:underline text-center block">Volver a Login</button>
+            </form>
 
             <!-- AUTO REGISTRO CLIENTE -->
             <form id="formRegister" onsubmit="handleClientRegister(event)" class="space-y-3 hidden">
@@ -168,11 +134,10 @@ db.auth.onAuthStateChange(async (event, session) => {
         <!-- Contenido -->
         <main class="max-w-7xl mx-auto px-4 py-6 no-print">
 
-            <!-- TAB: CLIENTES (Diferenciado Admin/Cobrador vs Cliente) -->
+            <!-- TAB: CLIENTES -->
             <section id="sec-clientes" class="space-y-6">
                 <h2 class="text-xl font-bold text-slate-800" id="titleClientes">Gestión de Clientes</h2>
                 <div class="bg-white rounded-xl shadow-sm border p-4">
-                    <!-- Vista Admin y Cobrador -->
                     <div id="clientViewAdmin" class="hidden overflow-x-auto">
                         <table class="w-full text-left text-sm text-slate-600">
                             <thead class="bg-slate-50 uppercase text-xs">
@@ -188,7 +153,6 @@ db.auth.onAuthStateChange(async (event, session) => {
                         </table>
                     </div>
 
-                    <!-- Vista Mi Perfil (Cliente) -->
                     <div id="clientViewSelf" class="hidden space-y-4 max-w-xl">
                         <div class="bg-slate-50 p-4 rounded-lg border text-xs space-y-2">
                             <p><strong>Nombre:</strong> <span id="selfNombre">-</span></p>
@@ -208,7 +172,7 @@ db.auth.onAuthStateChange(async (event, session) => {
                 </div>
             </section>
 
-            <!-- TAB: SOLICITAR PRESTAMO CON AVAL Y 2 REFERENCIAS -->
+            <!-- TAB: SOLICITAR PRESTAMO -->
             <section id="sec-nuevo-prestamo" class="hidden max-w-3xl mx-auto space-y-6">
                 <div class="bg-white p-6 rounded-xl shadow-sm border space-y-4">
                     <h2 class="text-xl font-bold text-slate-800 border-b pb-3">Solicitud de Préstamo</h2>
@@ -236,15 +200,15 @@ db.auth.onAuthStateChange(async (event, session) => {
                                     <option value="3">3 Meses (12 Semanas)</option>
                                 </select>
                             </div>
-                            <div class="role-admin">
+                            <div id="divSelectCobrador" class="hidden role-admin role-cobrador">
                                 <label class="block text-xs font-semibold text-slate-600 mb-1">Asignar Cobrador (Opcional)</label>
                                 <select id="loanIntermediarySelect" class="w-full p-2.5 border rounded-lg text-sm bg-slate-50"></select>
                             </div>
                         </div>
 
-                        <!-- DATOS OBLIGATORIOS DEL AVAL -->
+                        <!-- DATOS AVAL Y REFERENCIAS -->
                         <div class="border-t pt-4 space-y-3">
-                            <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wider text-blue-800">1. Datos Obligatorios del Aval</h3>
+                            <h3 class="text-xs font-bold text-blue-800 uppercase tracking-wider">1. Datos Obligatorios del Aval</h3>
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
                                 <input type="text" id="avalNombre" required placeholder="Nombre Completo del Aval *" class="p-2 border rounded">
                                 <input type="text" id="avalIne" required placeholder="INE / CURP del Aval *" class="p-2 border rounded uppercase">
@@ -253,10 +217,8 @@ db.auth.onAuthStateChange(async (event, session) => {
                             </div>
                         </div>
 
-                        <!-- DOS REFERENCIAS OBLIGATORIAS -->
                         <div class="border-t pt-4 space-y-3">
-                            <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wider text-blue-800">2. Referencias Personales (Para Validación de Protocolo)</h3>
-                            
+                            <h3 class="text-xs font-bold text-blue-800 uppercase tracking-wider">2. Referencias Personales</h3>
                             <p class="text-[11px] font-semibold text-slate-600">Referencia 1:</p>
                             <div class="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
                                 <input type="text" id="ref1Nombre" required placeholder="Nombre Completo *" class="p-2 border rounded">
@@ -267,7 +229,6 @@ db.auth.onAuthStateChange(async (event, session) => {
                                     <option value="Trabajo">Trabajo</option>
                                 </select>
                             </div>
-
                             <p class="text-[11px] font-semibold text-slate-600 pt-2">Referencia 2:</p>
                             <div class="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
                                 <input type="text" id="ref2Nombre" required placeholder="Nombre Completo *" class="p-2 border rounded">
@@ -281,7 +242,7 @@ db.auth.onAuthStateChange(async (event, session) => {
                         </div>
 
                         <button onclick="saveLoan()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-lg text-sm mt-4">
-                            Enviar Solicitud para Validación de Protocolo
+                            Enviar Solicitud para Validación
                         </button>
                     </div>
                 </div>
@@ -316,7 +277,7 @@ db.auth.onAuthStateChange(async (event, session) => {
                         <input type="number" id="payAmount" min="1" placeholder="Monto ($ MXN) *" class="p-2.5 border rounded-lg text-sm">
                         <select id="payMethod" class="p-2.5 border rounded-lg text-sm">
                             <option value="Transferencia">Transferencia Bancaria</option>
-                            <option value="Efectivo">Efectivo (Cobrador toma foto de billetes)</option>
+                            <option value="Efectivo">Efectivo (Foto de billetes)</option>
                         </select>
                     </div>
 
@@ -388,28 +349,29 @@ db.auth.onAuthStateChange(async (event, session) => {
         </main>
     </div>
 
-    <!-- MODAL CAMBIAR ESTATUS DE RIESGO DE CLIENTE (SOLO ADMIN/COBRADOR) -->
+    <!-- MODAL CLASIFICAR RIESGO CLIENTE -->
     <div id="modalEstatusCliente" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
         <div class="bg-white rounded-xl shadow-xl max-w-md w-full p-6 space-y-4">
-            <h3 class="text-lg font-bold text-slate-800 border-b pb-2">Clasificación de Riesgo del Cliente</h3>
+            <h3 class="text-lg font-bold text-slate-800 border-b pb-2">Clasificación de Riesgo</h3>
             <input type="hidden" id="statusClientId">
             
             <div>
-                <label class="block text-xs font-semibold text-slate-600 mb-1">Elegir Nivel de Cumplimiento *</label>
+                <label class="block text-xs font-semibold text-slate-600 mb-1">Nivel de Cumplimiento *</label>
                 <select id="selectEstatusRiesgo" class="w-full p-2.5 border rounded-lg text-sm bg-slate-50">
-                    <option value="Cumplido">🟢 Cliente Cumplido (Puntual / Crédito Abierto)</option>
-                    <option value="Precaucion">🟡 Cliente con Precaución (Atraso moderado / Préstamo Máx $3,000)</option>
-                    <option value="Moroso">🔴 Cliente Moroso (Atraso recurrente / Bloqueado para prestar)</option>
+                    <option value="Cumplido">🟢 Cliente Cumplido (Crédito Abierto)</option>
+                    <option value="Precaucion">🟡 Cliente con Precaución (Máximo $3,000)</option>
+                    <option value="Moroso">🔴 Cliente Moroso (Bloqueado)</option>
                 </select>
             </div>
 
             <div class="flex justify-end gap-2 pt-3 border-t">
                 <button onclick="closeStatusModal()" class="px-4 py-2 border rounded text-xs">Cancelar</button>
-                <button onclick="saveClientStatus()" class="px-4 py-2 bg-blue-600 text-white rounded text-xs font-bold">Guardar Nivel</button>
+                <button onclick="saveClientStatus()" class="px-4 py-2 bg-blue-600 text-white rounded text-xs font-bold">Guardar</button>
             </div>
         </div>
     </div>
 
+    <!-- SCRIPT DE JAVASCRIPT Y SUPABASE -->
     <script>
         const SUPABASE_URL = 'https://uascngatchubxfymvyzs.supabase.co';
         const SUPABASE_KEY = 'sb_publishable_3TqP8Ydihrgue2ClIlkYOQ_3RZv6lNM';
@@ -418,6 +380,44 @@ db.auth.onAuthStateChange(async (event, session) => {
         let currentUser = null;
         let userProfile = { rol: 'cliente', iniciales: 'USR' };
         let inactivityTimer = null;
+
+        // --- MANEJO DE RECUPERACIÓN DE CONTRASEÑA ---
+        async function handleForgotPassword(e) {
+            e.preventDefault();
+            const email = document.getElementById('forgotEmail').value.trim();
+            
+            const { error } = await db.auth.resetPasswordForEmail(email, {
+                redirectTo: 'https://nesale191.github.io/control-prestamos/'
+            });
+
+            if (error) {
+                document.getElementById('authError').innerText = 'Error: ' + error.message;
+                document.getElementById('authError').classList.remove('hidden');
+            } else {
+                document.getElementById('authSuccess').innerHTML = `
+                    <p class="font-bold">📩 ¡Correo enviado!</p>
+                    <p>Revisa la bandeja de entrada o Spam de <strong>${email}</strong> para actualizar tu clave.</p>
+                `;
+                document.getElementById('authSuccess').classList.remove('hidden');
+                document.getElementById('formForgot').classList.add('hidden');
+            }
+        }
+
+        // ESCUCHAR RECUPERACIÓN
+        db.auth.onAuthStateChange(async (event, session) => {
+            if (event === 'PASSWORD_RECOVERY') {
+                const newPassword = prompt("🔐 Ingresa tu nueva contraseña (mínimo 6 caracteres):");
+                if (newPassword && newPassword.length >= 6) {
+                    const { error } = await db.auth.updateUser({ password: newPassword });
+                    if (!error) {
+                        alert("✅ ¡Contraseña actualizada con éxito! Inicia sesión con tu nueva contraseña.");
+                        location.href = 'https://nesale191.github.io/control-prestamos/';
+                    } else {
+                        alert("Error al actualizar: " + error.message);
+                    }
+                }
+            }
+        });
 
         function resetInactivityTimer() {
             if (!currentUser) return;
@@ -526,12 +526,11 @@ db.auth.onAuthStateChange(async (event, session) => {
             document.getElementById(`tab-${tab}`)?.classList.add('tab-active');
         }
 
-        // --- CLIENTES & RIESGO ---
+        // --- CLIENTES ---
         async function renderClients() {
             if (userProfile.rol === 'cliente') {
                 document.getElementById('clientViewAdmin').classList.add('hidden');
                 document.getElementById('clientViewSelf').classList.remove('hidden');
-                document.getElementById('tabClientLabel').innerText = 'Mis Datos';
 
                 const { data: c } = await db.from('Clientes').select('*').eq('id', userProfile.cliente_id).single();
                 if (c) {
@@ -552,18 +551,14 @@ db.auth.onAuthStateChange(async (event, session) => {
 
                 if (data) {
                     data.forEach(c => {
-                        let colorBadge = 'bg-emerald-100 text-emerald-800';
-                        if (c.Estatus_Riesgo === 'Precaucion') colorBadge = 'bg-amber-100 text-amber-800';
-                        if (c.Estatus_Riesgo === 'Moroso') colorBadge = 'bg-rose-100 text-rose-800';
-
                         tbody.innerHTML += `
                             <tr>
                                 <td class="p-3 font-semibold">${c.nombre}</td>
                                 <td class="p-3">${c.INE}</td>
                                 <td class="p-3">${c.Telefono}</td>
-                                <td class="p-3"><span class="px-2 py-0.5 rounded text-xs font-bold ${colorBadge}">${c.Estatus_Riesgo || 'Cumplido'}</span></td>
+                                <td class="p-3"><span class="px-2 py-0.5 rounded text-xs font-bold bg-emerald-100 text-emerald-800">${c.Estatus_Riesgo || 'Cumplido'}</span></td>
                                 <td class="p-3 text-right">
-                                    <button onclick="openStatusModal(${c.id}, '${c.Estatus_Riesgo || 'Cumplido'}')" class="text-xs bg-slate-800 text-white px-2 py-1 rounded">Clasificar Riesgo</button>
+                                    <button onclick="openStatusModal(${c.id}, '${c.Estatus_Riesgo || 'Cumplido'}')" class="text-xs bg-slate-800 text-white px-2 py-1 rounded">Riesgo</button>
                                 </td>
                             </tr>`;
                     });
@@ -595,20 +590,19 @@ db.auth.onAuthStateChange(async (event, session) => {
             alert('CLABE actualizada.');
         }
 
-        // --- PRESTAMOS CON AVAL Y REFERENCIAS ---
+        // --- PRESTAMOS ---
+        function calculateLoanParams() {
+            const monto = parseFloat(document.getElementById('loanAmount').value) || 0;
+            const plazoMeses = parseInt(document.getElementById('loanPlazo').value) || 2;
+
+            const interesSemanal = Math.floor(monto / 1000) * 100;
+            const totalSemanas = plazoMeses * 4;
+            const cuotaSemanal = Math.ceil((monto / totalSemanas) + interesSemanal);
+        }
+
         async function saveLoan() {
             const cliente_id = userProfile.rol === 'cliente' ? userProfile.cliente_id : document.getElementById('loanClientSelect').value;
-            
-            // Verificar si el cliente es moroso o precaución
-            const { data: client } = await db.from('Clientes').select('*').eq('id', cliente_id).single();
-            if (client && client.Estatus_Riesgo === 'Moroso') {
-                return alert('❌ Solicitud Rechazada: El cliente se encuentra bloqueado por clasificación MOROSO.');
-            }
-
             const monto = parseFloat(document.getElementById('loanAmount').value) || 0;
-            if (client && client.Estatus_Riesgo === 'Precaucion' && monto > 3000) {
-                return alert('⚠️ Solicitud Rechazada: El monto máximo permitido para clientes con clasificación PRECAUCIÓN es de $3,000 MXN.');
-            }
 
             const avalNombre = document.getElementById('avalNombre').value.trim();
             const avalIne = document.getElementById('avalIne').value.trim();
@@ -624,7 +618,7 @@ db.auth.onAuthStateChange(async (event, session) => {
             const ref2Rel = document.getElementById('ref2Relacion').value;
 
             if (!avalNombre || !avalTel || !ref1Nombre || !ref2Nombre) {
-                return alert('Por favor llene todos los campos obligatorios del Aval y las 2 Referencias.');
+                return alert('Llene todos los campos del Aval y las 2 Referencias.');
             }
 
             const plazo = parseInt(document.getElementById('loanPlazo').value) || 2;
@@ -639,7 +633,7 @@ db.auth.onAuthStateChange(async (event, session) => {
                 Ref2_Nombre: ref2Nombre, Ref2_Tel: ref2Tel, Ref2_Relacion: ref2Rel
             }]);
 
-            alert('Solicitud con Aval y Referencias enviada a protocolo.');
+            alert('Solicitud enviada a revisión.');
             renderLoans();
             switchTab('prestamos');
         }
@@ -658,7 +652,7 @@ db.auth.onAuthStateChange(async (event, session) => {
                     tbody.innerHTML += `
                         <tr>
                             <td class="p-3">#${p.id} <br><span class="text-xs text-slate-400">${p.Fecha}</span></td>
-                            <td class="p-3"><strong class="text-slate-800">${p.Clientes ? p.Clientes.nombre : 'Cliente'}</strong><br><span class="text-xs text-emerald-600 font-bold">${p.Clientes?.Telefono}</span></td>
+                            <td class="p-3"><strong class="text-slate-800">${p.Clientes ? p.Clientes.nombre : 'Cliente'}</strong></td>
                             <td class="p-3">$${p.Monto} / <strong class="text-blue-700">$${p.Saldo_Capital} MXN</strong></td>
                             <td class="p-3">${p.Intermediario_Id ? `Cobrador #${p.Intermediario_Id}` : 'Sin Cobrador'}</td>
                             <td class="p-3 text-center">Activo</td>
