@@ -497,20 +497,37 @@
             const clabe = document.getElementById('regClabe').value.trim();
             const password = document.getElementById('regPassword').value.trim();
 
-            const { data: existing, error: existingErr } = await db.from('Clientes').select('*').or(`INE.eq.${curp},Telefono.eq.${telefono},Correo.eq.${correo}`);
+            // Verificar duplicados vía función RPC segura (no expone la tabla completa)
+            const { data: yaExiste, error: existingErr } = await db.rpc('cliente_existe', {
+                p_curp: curp, p_telefono: telefono, p_correo: correo
+            });
             if (existingErr) {
                 console.error('Error verificando cliente existente:', existingErr);
                 document.getElementById('authError').innerText = '⚠️ Error verificando datos: ' + existingErr.message;
                 document.getElementById('authError').classList.remove('hidden');
                 return;
             }
-            if (existing && existing.length > 0) {
+            if (yaExiste) {
                 document.getElementById('authError').innerText = '⚠️ CURP, Correo o Teléfono ya registrado.';
                 document.getElementById('authError').classList.remove('hidden');
                 return;
             }
 
-            const { data: authData, error: authErr } = await db.auth.signUp({ email: correo, password });
+            // El signUp manda todos los datos del cliente como metadata.
+            // Un trigger en la base de datos (handle_new_client_user) crea
+            // automáticamente el registro en Clientes y en Perfiles del lado
+            // del servidor, sin depender de si hay sesión activa o RLS.
+            const { data: authData, error: authErr } = await db.auth.signUp({
+                email: correo,
+                password,
+                options: {
+                    data: {
+                        rol: 'cliente',
+                        nombre, curp, telefono, direccion, clabe
+                    }
+                }
+            });
+
             if (authErr) {
                 console.error('Error en signUp:', authErr);
                 document.getElementById('authError').innerText = authErr.message;
@@ -519,35 +536,6 @@
             }
             if (!authData.user) {
                 document.getElementById('authError').innerText = '⚠️ No se pudo crear el usuario de autenticación.';
-                document.getElementById('authError').classList.remove('hidden');
-                return;
-            }
-
-            const { data: newClient, error: clientErr } = await db.from('Clientes').insert([{
-                nombre, INE: curp, Telefono: telefono, Correo: correo, Direccion: direccion, Clabe: clabe, Estatus_Riesgo: 'Cumplido'
-            }]).select().single();
-
-            if (clientErr) {
-                console.error('Error insertando en Clientes:', clientErr);
-                // Causa más común: RLS bloqueando el insert porque signUp no genera sesión
-                // activa cuando la confirmación de correo está habilitada en Supabase.
-                document.getElementById('authError').innerText =
-                    '⚠️ Tu usuario se creó en Auth, pero no se pudo guardar en Clientes: ' + clientErr.message +
-                    ' (revisa las políticas RLS de la tabla "Clientes" y la confirmación de correo en Supabase).';
-                document.getElementById('authError').classList.remove('hidden');
-                return;
-            }
-
-            // Registro forzado con ROL CLIENTE
-            const { error: perfilErr } = await db.from('Perfiles').insert([{
-                id: authData.user.id, correo, rol: 'cliente', iniciales: nombre.slice(0,3).toUpperCase(), cliente_id: newClient.id, bloqueado: false
-            }]);
-
-            if (perfilErr) {
-                console.error('Error insertando en Perfiles:', perfilErr);
-                document.getElementById('authError').innerText =
-                    '⚠️ El cliente se guardó, pero no se pudo crear su Perfil: ' + perfilErr.message +
-                    ' (revisa las políticas RLS de la tabla "Perfiles").';
                 document.getElementById('authError').classList.remove('hidden');
                 return;
             }
