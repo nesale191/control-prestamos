@@ -1097,12 +1097,16 @@
                 data.forEach(pg => {
                     const esAdmin = userProfile.rol === 'admin';
                     const validado = pg.Estatus === 'Validado';
+                    const rechazado = pg.Estatus === 'Rechazado';
                     const fechaHora = pg.Creado_En
                         ? new Date(pg.Creado_En).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })
                         : pg.Fecha;
-                    const badge = validado
-                        ? '<span class="bg-emerald-100 text-emerald-800 text-xs px-2 py-0.5 rounded font-bold">Validado</span>'
-                        : '<span class="bg-amber-100 text-amber-800 text-xs px-2 py-0.5 rounded font-bold">En Revisión</span>';
+                    let badge = '<span class="bg-amber-100 text-amber-800 text-xs px-2 py-0.5 rounded font-bold">En Revisión</span>';
+                    if (validado) badge = '<span class="bg-emerald-100 text-emerald-800 text-xs px-2 py-0.5 rounded font-bold">Validado</span>';
+                    if (rechazado) {
+                        badge = '<span class="bg-red-100 text-red-800 text-xs px-2 py-0.5 rounded font-bold">Rechazado</span>';
+                        if (pg.Motivo_Rechazo) badge += `<br><span class="text-[11px] text-red-600">Motivo: ${pg.Motivo_Rechazo}</span>`;
+                    }
 
                     tbody.innerHTML += `
                         <tr>
@@ -1111,7 +1115,10 @@
                             <td class="p-3 font-bold text-emerald-700">$${pg.Monto_Total} MXN</td>
                             <td class="p-3">${badge}</td>
                             <td class="p-3 text-right">
-                                ${esAdmin && !validado ? `<button onclick="validarPago(${pg.id})" class="bg-blue-600 text-white text-xs px-2 py-1 rounded font-bold">Aprobar</button>` : ''}
+                                ${esAdmin && !validado && !rechazado
+                                    ? `<button onclick="validarPago(${pg.id})" class="bg-blue-600 text-white text-xs px-2 py-1 rounded font-bold mr-1">Aprobar</button>
+                                       <button onclick="rechazarPago(${pg.id})" class="bg-red-600 text-white text-xs px-2 py-1 rounded font-bold">Rechazar</button>`
+                                    : ''}
                             </td>
                         </tr>`;
 
@@ -1126,6 +1133,20 @@
                     }
                 });
             }
+        }
+
+        async function rechazarPago(pagoId) {
+            const motivo = prompt('Escribe el motivo del rechazo del pago (el cliente lo podrá ver):');
+            if (motivo === null) return;
+            if (!motivo.trim()) return alert('Debes escribir un motivo.');
+
+            const { error } = await db.rpc('rechazar_pago', { p_pago_id: pagoId, p_motivo: motivo.trim() });
+            if (error) {
+                console.error('Error rechazando pago:', error);
+                return alert('⚠️ No se pudo rechazar: ' + error.message);
+            }
+            alert('Pago rechazado.');
+            renderValidaciones();
         }
 
         async function validarPago(pagoId) {
