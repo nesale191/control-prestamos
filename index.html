@@ -873,7 +873,7 @@
                             <td class="p-3 text-right">${acciones}</td>
                         </tr>`;
                 });
-                populateLoanSelect(data.filter(p => p.Estatus !== 'Pendiente'));
+                populateLoanSelect(data.filter(p => p.Estatus === 'Activo'));
             }
         }
 
@@ -1050,9 +1050,12 @@
             const monto = parseFloat(document.getElementById('payAmount').value) || 0;
             const metodo = document.getElementById('payMethod').value;
 
-            const { error: payErr } = await db.from('Pagos').insert([{
-                Prestamo_Id: prestamo_id, Monto_Total: monto, Fecha: new Date().toISOString().slice(0,10), Metodo: metodo
-            }]);
+            if (!prestamo_id) return alert('No hay préstamos activos disponibles para pagar.');
+            if (monto <= 0) return alert('Ingresa un monto válido.');
+
+            const { error: payErr } = await db.rpc('enviar_pago', {
+                p_prestamo_id: prestamo_id, p_monto: monto, p_metodo: metodo
+            });
 
             if (payErr) {
                 console.error('Error registrando pago:', payErr);
@@ -1102,7 +1105,7 @@
         }
 
         function populateClientSelect(cl) { document.getElementById('loanClientSelect').innerHTML = cl.map(c => `<option value="${c.id}">${c.nombre}</option>`).join(''); }
-        function populateLoanSelect(pr) { document.getElementById('payLoanSelect').innerHTML = pr.map(p => `<option value="${p.id}">Préstamo #${p.id} - Saldo: $${p.Saldo_Capital}</option>`).join(''); }
+        function populateLoanSelect(pr) { document.getElementById('payLoanSelect').innerHTML = pr.map(p => `<option value="${p.id}">${p.Folio || 'Préstamo #' + p.id} - Saldo: $${p.Saldo_Capital}</option>`).join(''); }
 
         function renderAll() {
             renderClients();
