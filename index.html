@@ -115,6 +115,7 @@
                 </button>
                 <button onclick="switchTab('prestamos')" id="tab-prestamos" class="py-3 px-1 flex items-center gap-2 whitespace-nowrap role-admin role-cobrador role-cliente">
                     <i class="fa-solid fa-file-invoice-dollar"></i> Préstamos
+                    <span id="prestamosPendientesBadge" class="hidden bg-red-600 text-white text-xs font-bold rounded-full px-2 py-0.5"></span>
                 </button>
                 <button onclick="switchTab('pagos')" id="tab-pagos" class="py-3 px-1 flex items-center gap-2 whitespace-nowrap role-admin role-cobrador role-cliente">
                     <i class="fa-solid fa-money-bill-transfer"></i> Registrar / Enviar Pago
@@ -254,11 +255,12 @@
                     <table class="w-full text-left text-sm text-slate-600">
                         <thead class="bg-slate-50 uppercase text-xs">
                             <tr>
-                                <th class="p-3">ID / Fecha</th>
+                                <th class="p-3">Folio / Fecha</th>
                                 <th class="p-3">Cliente</th>
                                 <th class="p-3">Monto / Saldo</th>
                                 <th class="p-3">Cobrador</th>
                                 <th class="p-3 text-center">Estatus</th>
+                                <th class="p-3 text-right">Acciones</th>
                             </tr>
                         </thead>
                         <tbody id="loanTableBody" class="divide-y divide-slate-100"></tbody>
@@ -733,13 +735,13 @@
                 Ref2_Nombre: ref2Nombre, Ref2_Tel: ref2Tel, Ref2_Relacion: ref2Rel
             }]);
 
-            alert('Solicitud enviada a revisión.');
+            alert('Solicitud enviada. Queda pendiente de aprobación por el administrador.');
             renderLoans();
             switchTab('prestamos');
         }
 
         async function renderLoans() {
-            let query = db.from('Prestamos').select('*, Clientes(*)');
+            let query = db.from('Prestamos').select('*, Clientes(*)').order('id', { ascending: false });
             if (userProfile.rol === 'cobrador') query = query.eq('Intermediario_Id', userProfile.intermediario_id);
             if (userProfile.rol === 'cliente') query = query.eq('Cliente_Id', userProfile.cliente_id);
 
@@ -748,18 +750,60 @@
             tbody.innerHTML = '';
 
             if (data) {
+                // Notificación visual de solicitudes pendientes (solo admin)
+                const badge = document.getElementById('prestamosPendientesBadge');
+                const pendientes = data.filter(p => p.Estatus === 'Pendiente').length;
+                if (badge) {
+                    if (userProfile.rol === 'admin' && pendientes > 0) {
+                        badge.innerText = pendientes;
+                        badge.classList.remove('hidden');
+                    } else {
+                        badge.classList.add('hidden');
+                    }
+                }
+
                 data.forEach(p => {
+                    const esAdmin = userProfile.rol === 'admin';
+                    let estatusBadge = '<span class="bg-emerald-100 text-emerald-800 text-xs px-2 py-0.5 rounded font-bold">Activo</span>';
+                    if (p.Estatus === 'Pendiente') {
+                        estatusBadge = '<span class="bg-amber-100 text-amber-800 text-xs px-2 py-0.5 rounded font-bold">Pendiente de Aprobación</span>';
+                    } else if (p.Estatus === 'Rechazado') {
+                        estatusBadge = '<span class="bg-red-100 text-red-800 text-xs px-2 py-0.5 rounded font-bold">Rechazado</span>';
+                    }
+
+                    const acciones = (esAdmin && p.Estatus === 'Pendiente')
+                        ? `<button onclick="aprobarPrestamo(${p.id})" class="bg-emerald-600 text-white text-xs px-2 py-1 rounded font-bold mr-1">Aprobar</button>
+                           <button onclick="rechazarPrestamo(${p.id})" class="bg-red-600 text-white text-xs px-2 py-1 rounded font-bold">Rechazar</button>`
+                        : '';
+
                     tbody.innerHTML += `
-                        <tr>
-                            <td class="p-3">#${p.id} <br><span class="text-xs text-slate-400">${p.Fecha}</span></td>
+                        <tr class="${p.Estatus === 'Pendiente' ? 'bg-amber-50/50' : ''}">
+                            <td class="p-3"><strong>${p.Folio || '#' + p.id}</strong><br><span class="text-xs text-slate-400">${p.Fecha}</span></td>
                             <td class="p-3"><strong class="text-slate-800">${p.Clientes ? p.Clientes.nombre : 'Cliente'}</strong></td>
                             <td class="p-3">$${p.Monto} / <strong class="text-blue-700">$${p.Saldo_Capital} MXN</strong></td>
                             <td class="p-3">${p.Intermediario_Id ? `Cobrador #${p.Intermediario_Id}` : 'Sin Cobrador'}</td>
-                            <td class="p-3 text-center">Activo</td>
+                            <td class="p-3 text-center">${estatusBadge}</td>
+                            <td class="p-3 text-right">${acciones}</td>
                         </tr>`;
                 });
-                populateLoanSelect(data);
+                populateLoanSelect(data.filter(p => p.Estatus !== 'Pendiente'));
             }
+        }
+
+        async function aprobarPrestamo(id) {
+            if (!confirm('¿Aprobar este préstamo? Pasará a estatus Activo.')) return;
+            const { error } = await db.from('Prestamos').update({ Estatus: 'Activo' }).eq('id', id);
+            if (error) return alert('Error al aprobar: ' + error.message);
+            alert('Préstamo aprobado.');
+            renderLoans();
+        }
+
+        async function rechazarPrestamo(id) {
+            if (!confirm('¿Rechazar esta solicitud de préstamo?')) return;
+            const { error } = await db.from('Prestamos').update({ Estatus: 'Rechazado' }).eq('id', id);
+            if (error) return alert('Error al rechazar: ' + error.message);
+            alert('Préstamo rechazado.');
+            renderLoans();
         }
 
         async function processPayment() {
