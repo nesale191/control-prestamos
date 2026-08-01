@@ -313,6 +313,21 @@
                         Enviar Pago a Revisión
                     </button>
                 </div>
+
+                <div id="misPagosBox" class="bg-white p-6 rounded-xl shadow-sm border role-cliente">
+                    <h3 class="font-bold text-slate-800 mb-3">Mis Pagos Enviados</h3>
+                    <table class="w-full text-left text-sm">
+                        <thead class="bg-slate-50 text-xs text-slate-500 uppercase">
+                            <tr>
+                                <th class="p-2">Fecha y Hora</th>
+                                <th class="p-2">Préstamo</th>
+                                <th class="p-2">Monto</th>
+                                <th class="p-2 text-center">Estatus</th>
+                            </tr>
+                        </thead>
+                        <tbody id="misPagosTableBody" class="divide-y divide-slate-100"></tbody>
+                    </table>
+                </div>
             </section>
 
             <!-- TAB: VALIDAR PAGOS -->
@@ -1068,26 +1083,47 @@
 
         async function renderValidaciones() {
             const { data, error } = await db.rpc('listar_pagos');
-            if (error) console.error('Error listando pagos:', error);
+            if (error) {
+                console.error('Error listando pagos:', error);
+                alert('⚠️ No se pudieron cargar los pagos: ' + error.message);
+            }
             const tbody = document.getElementById('valTableBody');
             tbody.innerHTML = '';
 
             if (data) {
+                const tbodyMios = document.getElementById('misPagosTableBody');
+                if (tbodyMios) tbodyMios.innerHTML = '';
+
                 data.forEach(pg => {
                     const esAdmin = userProfile.rol === 'admin';
                     const validado = pg.Estatus === 'Validado';
+                    const fechaHora = pg.Creado_En
+                        ? new Date(pg.Creado_En).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })
+                        : pg.Fecha;
+                    const badge = validado
+                        ? '<span class="bg-emerald-100 text-emerald-800 text-xs px-2 py-0.5 rounded font-bold">Validado</span>'
+                        : '<span class="bg-amber-100 text-amber-800 text-xs px-2 py-0.5 rounded font-bold">En Revisión</span>';
+
                     tbody.innerHTML += `
                         <tr>
-                            <td class="p-3 text-xs">${pg.Fecha}</td>
+                            <td class="p-3 text-xs">${fechaHora}</td>
                             <td class="p-3">${pg.Folio || '#' + pg.Prestamo_Id} (${pg.cliente_nombre || 'Cliente'})</td>
                             <td class="p-3 font-bold text-emerald-700">$${pg.Monto_Total} MXN</td>
-                            <td class="p-3">${validado
-                                ? '<span class="bg-emerald-100 text-emerald-800 text-xs px-2 py-0.5 rounded font-bold">Validado</span>'
-                                : '<span class="bg-amber-100 text-amber-800 text-xs px-2 py-0.5 rounded font-bold">En Revisión</span>'}</td>
+                            <td class="p-3">${badge}</td>
                             <td class="p-3 text-right">
                                 ${esAdmin && !validado ? `<button onclick="validarPago(${pg.id})" class="bg-blue-600 text-white text-xs px-2 py-1 rounded font-bold">Aprobar</button>` : ''}
                             </td>
                         </tr>`;
+
+                    if (tbodyMios) {
+                        tbodyMios.innerHTML += `
+                            <tr>
+                                <td class="p-2 text-xs">${fechaHora}</td>
+                                <td class="p-2">${pg.Folio || '#' + pg.Prestamo_Id}</td>
+                                <td class="p-2 font-bold text-emerald-700">$${pg.Monto_Total} MXN</td>
+                                <td class="p-2 text-center">${badge}</td>
+                            </tr>`;
+                    }
                 });
             }
         }
