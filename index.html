@@ -689,7 +689,8 @@
                 }
 
                 document.getElementById('selfIncompleteNotice').classList.add('hidden');
-                const { data: c } = await db.from('Clientes').select('*').eq('id', userProfile.cliente_id).single();
+                const { data: c, error: cErr } = await db.rpc('obtener_mi_cliente');
+                if (cErr) console.error('Error obteniendo mis datos:', cErr);
                 if (c) {
                     document.getElementById('selfNombre').value = c.nombre || '';
                     document.getElementById('selfCurp').value = c.INE || '';
@@ -702,7 +703,8 @@
                 document.getElementById('clientViewAdmin').classList.remove('hidden');
                 document.getElementById('clientViewSelf').classList.add('hidden');
 
-                const { data } = await db.from('Clientes').select('*');
+                const { data, error: listErr } = await db.rpc('listar_clientes');
+                if (listErr) console.error('Error listando clientes:', listErr);
                 const tbody = document.getElementById('clientTableBody');
                 tbody.innerHTML = '';
 
@@ -805,11 +807,19 @@
         }
 
         async function renderLoans() {
-            let query = db.from('Prestamos').select('*, Clientes(*)').order('id', { ascending: false });
-            if (userProfile.rol === 'cobrador') query = query.eq('Intermediario_Id', userProfile.intermediario_id);
-            if (userProfile.rol === 'cliente') query = query.eq('Cliente_Id', userProfile.cliente_id);
+            const { data, error: loansErr } = await db.rpc('listar_prestamos');
+            if (loansErr) console.error('Error listando préstamos:', loansErr);
 
-            const { data } = await query;
+            // La RPC no trae el join a Clientes, así que armamos un mapa id->nombre aparte
+            let nombresPorClienteId = {};
+            if (userProfile.rol === 'admin' || userProfile.rol === 'cobrador') {
+                const { data: clientesData } = await db.rpc('listar_clientes');
+                (clientesData || []).forEach(c => { nombresPorClienteId[c.id] = c.nombre; });
+            } else if (userProfile.cliente_id) {
+                const { data: miCliente } = await db.rpc('obtener_mi_cliente');
+                if (miCliente) nombresPorClienteId[miCliente.id] = miCliente.nombre;
+            }
+
             const tbody = document.getElementById('loanTableBody');
             tbody.innerHTML = '';
 
@@ -829,10 +839,14 @@
                 data.forEach(p => {
                     const esAdmin = userProfile.rol === 'admin';
                     let estatusBadge = '<span class="bg-emerald-100 text-emerald-800 text-xs px-2 py-0.5 rounded font-bold">Activo</span>';
+                    let motivoLinea = '';
                     if (p.Estatus === 'Pendiente') {
                         estatusBadge = '<span class="bg-amber-100 text-amber-800 text-xs px-2 py-0.5 rounded font-bold">Pendiente de Aprobación</span>';
                     } else if (p.Estatus === 'Rechazado') {
                         estatusBadge = '<span class="bg-red-100 text-red-800 text-xs px-2 py-0.5 rounded font-bold">Rechazado</span>';
+                        if (p.Motivo_Rechazo) {
+                            motivoLinea = `<br><span class="text-[11px] text-red-600">Motivo: ${p.Motivo_Rechazo}</span>`;
+                        }
                     }
 
                     const acciones = (esAdmin && p.Estatus === 'Pendiente')
@@ -843,10 +857,10 @@
                     tbody.innerHTML += `
                         <tr class="${p.Estatus === 'Pendiente' ? 'bg-amber-50/50' : ''}">
                             <td class="p-3"><strong>${p.Folio || '#' + p.id}</strong><br><span class="text-xs text-slate-400">${p.Fecha}</span></td>
-                            <td class="p-3"><strong class="text-slate-800">${p.Clientes ? p.Clientes.nombre : 'Cliente'}</strong></td>
+                            <td class="p-3"><strong class="text-slate-800">${nombresPorClienteId[p.Cliente_Id] || 'Cliente #' + p.Cliente_Id}</strong></td>
                             <td class="p-3">$${p.Monto} / <strong class="text-blue-700">$${p.Saldo_Capital} MXN</strong></td>
                             <td class="p-3">${p.Intermediario_Id ? `Cobrador #${p.Intermediario_Id}` : 'Sin Cobrador'}</td>
-                            <td class="p-3 text-center">${estatusBadge}</td>
+                            <td class="p-3 text-center">${estatusBadge}${motivoLinea}</td>
                             <td class="p-3 text-right">${acciones}</td>
                         </tr>`;
                 });
@@ -856,15 +870,18 @@
 
         async function aprobarPrestamo(id) {
             if (!confirm('¿Aprobar este préstamo? Pasará a estatus Activo.')) return;
-            const { error } = await db.from('Prestamos').update({ Estatus: 'Activo' }).eq('id', id);
+            const { error } = await db.from('Prestamos').update({ Estatus: 'Activo', Motivo_Rechazo: null }).eq('id', id);
             if (error) return alert('Error al aprobar: ' + error.message);
             alert('Préstamo aprobado.');
             renderLoans();
         }
 
         async function rechazarPrestamo(id) {
-            if (!confirm('¿Rechazar esta solicitud de préstamo?')) return;
-            const { error } = await db.from('Prestamos').update({ Estatus: 'Rechazado' }).eq('id', id);
+            const motivo = prompt('Escribe el motivo del rechazo (el cliente lo podrá ver):');
+            if (motivo === null) return; // canceló
+            if (!motivo.trim()) return alert('Debes escribir un motivo para rechazar la solicitud.');
+
+            const { error } = await db.from('Prestamos').update({ Estatus: 'Rechazado', Motivo_Rechazo: motivo.trim() }).eq('id', id);
             if (error) return alert('Error al rechazar: ' + error.message);
             alert('Préstamo rechazado.');
             renderLoans();
