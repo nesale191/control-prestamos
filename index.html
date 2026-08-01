@@ -658,6 +658,15 @@
                 document.getElementById('clientViewAdmin').classList.add('hidden');
                 document.getElementById('clientViewSelf').classList.remove('hidden');
 
+                if (!userProfile.cliente_id) {
+                    document.getElementById('selfNombre').innerText = '⚠️ Sin datos';
+                    document.getElementById('selfCurp').innerText = '-';
+                    document.getElementById('selfTel').innerText = '-';
+                    document.getElementById('selfCorreo').innerText = '-';
+                    document.getElementById('selfEstatusBadge').innerText = 'Cuenta incompleta - contacta al administrador';
+                    return;
+                }
+
                 const { data: c } = await db.from('Clientes').select('*').eq('id', userProfile.cliente_id).single();
                 if (c) {
                     document.getElementById('selfNombre').innerText = c.nombre;
@@ -863,6 +872,22 @@
             renderValidaciones();
             renderUsers();
         }
+        // Al cargar la página, revisa si ya hay una sesión activa guardada
+        // por Supabase (localStorage). Si la hay, entra directo a la app
+        // en vez de mostrar el login otra vez.
+        (async function bootstrapSession() {
+            const { data: { session } } = await db.auth.getSession();
+            if (session && session.user) {
+                currentUser = session.user;
+                await loadUserProfile();
+                if (userProfile.bloqueado === true) {
+                    await db.auth.signOut();
+                    location.reload();
+                    return;
+                }
+                initApp();
+            }
+        })();
     </script>
 </body>
 </html>
