@@ -735,39 +735,17 @@
                 return alert('Nombre, CURP y Teléfono son obligatorios.');
             }
 
-            if (!userProfile.cliente_id) {
-                // No tiene registro de Cliente todavía: lo creamos y lo vinculamos a su Perfil
-                const { data: nuevoCliente, error: insErr } = await db.from('Clientes').insert([{
-                    nombre, INE: curp, Telefono: telefono, Correo: currentUser.email,
-                    Direccion: direccion, Estatus_Riesgo: 'Cumplido'
-                }]).select().single();
+            const { data, error } = await db.rpc('completar_mi_registro', {
+                p_nombre: nombre, p_curp: curp, p_telefono: telefono, p_direccion: direccion
+            });
 
-                if (insErr) {
-                    console.error('Error creando registro de cliente:', insErr);
-                    return alert('⚠️ No se pudo guardar: ' + insErr.message);
-                }
-
-                const { error: linkErr } = await db.from('Perfiles').update({ cliente_id: nuevoCliente.id }).eq('id', currentUser.id);
-                if (linkErr) {
-                    console.error('Error vinculando perfil:', linkErr);
-                    return alert('⚠️ Se creó tu registro pero no se pudo vincular a tu cuenta: ' + linkErr.message);
-                }
-
-                userProfile.cliente_id = nuevoCliente.id;
-                alert('✅ Datos guardados. Ya puedes solicitar un préstamo.');
-            } else {
-                // Ya existe: solo actualizamos
-                const { error: updErr } = await db.from('Clientes').update({
-                    nombre, INE: curp, Telefono: telefono, Direccion: direccion
-                }).eq('id', userProfile.cliente_id);
-
-                if (updErr) {
-                    console.error('Error actualizando datos:', updErr);
-                    return alert('⚠️ No se pudo actualizar: ' + updErr.message);
-                }
-                alert('✅ Datos actualizados correctamente.');
+            if (error) {
+                console.error('Error guardando datos:', error);
+                return alert('⚠️ No se pudo guardar: ' + error.message);
             }
 
+            userProfile.cliente_id = data.cliente_id;
+            alert('✅ Datos guardados correctamente.');
             renderClients();
         }
 
