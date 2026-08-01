@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Supabase Client JS -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <style>
         @media print {
             body * { visibility: hidden; }
@@ -806,18 +807,22 @@
             switchTab('prestamos');
         }
 
+        let ultimosPrestamos = [];
+        let mapaClientes = {};
+
         async function renderLoans() {
             const { data, error: loansErr } = await db.rpc('listar_prestamos');
             if (loansErr) console.error('Error listando préstamos:', loansErr);
+            ultimosPrestamos = data || [];
 
             // La RPC no trae el join a Clientes, así que armamos un mapa id->nombre aparte
             let nombresPorClienteId = {};
             if (userProfile.rol === 'admin' || userProfile.rol === 'cobrador') {
                 const { data: clientesData } = await db.rpc('listar_clientes');
-                (clientesData || []).forEach(c => { nombresPorClienteId[c.id] = c.nombre; });
+                (clientesData || []).forEach(c => { nombresPorClienteId[c.id] = c.nombre; mapaClientes[c.id] = c; });
             } else if (userProfile.cliente_id) {
                 const { data: miCliente } = await db.rpc('obtener_mi_cliente');
-                if (miCliente) nombresPorClienteId[miCliente.id] = miCliente.nombre;
+                if (miCliente) { nombresPorClienteId[miCliente.id] = miCliente.nombre; mapaClientes[miCliente.id] = miCliente; }
             }
 
             const tbody = document.getElementById('loanTableBody');
@@ -849,10 +854,14 @@
                         }
                     }
 
-                    const acciones = (esAdmin && p.Estatus === 'Pendiente')
-                        ? `<button onclick="aprobarPrestamo(${p.id})" class="bg-emerald-600 text-white text-xs px-2 py-1 rounded font-bold mr-1">Aprobar</button>
-                           <button onclick="rechazarPrestamo(${p.id})" class="bg-red-600 text-white text-xs px-2 py-1 rounded font-bold">Rechazar</button>`
-                        : '';
+                    const acciones = `
+                        <button onclick="verAval(${p.id})" class="bg-slate-700 text-white text-xs px-2 py-1 rounded font-bold mr-1">Ver Aval</button>
+                        ${p.Estatus === 'Activo' ? `<button onclick="descargarPagare(${p.id})" class="bg-indigo-600 text-white text-xs px-2 py-1 rounded font-bold mr-1">Descargar Pagaré</button>` : ''}
+                        ${esAdmin && p.Estatus === 'Activo' ? `<button onclick="abrirDocumentos(${p.id})" class="bg-purple-600 text-white text-xs px-2 py-1 rounded font-bold mr-1">Documentos</button>` : ''}
+                        ${(esAdmin && p.Estatus === 'Pendiente')
+                            ? `<button onclick="aprobarPrestamo(${p.id})" class="bg-emerald-600 text-white text-xs px-2 py-1 rounded font-bold mr-1">Aprobar</button>
+                               <button onclick="rechazarPrestamo(${p.id})" class="bg-red-600 text-white text-xs px-2 py-1 rounded font-bold">Rechazar</button>`
+                            : ''}`;
 
                     tbody.innerHTML += `
                         <tr class="${p.Estatus === 'Pendiente' ? 'bg-amber-50/50' : ''}">
@@ -866,6 +875,155 @@
                 });
                 populateLoanSelect(data.filter(p => p.Estatus !== 'Pendiente'));
             }
+        }
+
+        function descargarPagare(prestamoId) {
+            const p = ultimosPrestamos.find(x => x.id === prestamoId);
+            const c = p ? mapaClientes[p.Cliente_Id] : null;
+            if (!p || !c) return alert('No se encontró la información completa de este préstamo.');
+
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF({ unit: 'mm', format: 'letter' });
+            const margen = 20;
+            let y = 25;
+
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(16);
+            doc.text('PAGARÉ', 105, y, { align: 'center' });
+            y += 10;
+
+            doc.setFontSize(10);
+            doc.setFont('helvetica', 'normal');
+            doc.text(`Folio: ${p.Folio || '#' + p.id}`, margen, y);
+            doc.text(`Fecha: ${p.Fecha}`, 150, y);
+            y += 12;
+
+            const montoTexto = `$${Number(p.Monto).toLocaleString('es-MX', {minimumFractionDigits: 2})} M.N.`;
+            const parrafo = `Debo y pagaré incondicionalmente a la orden de "Control de Préstamos Pro", en esta ciudad, la cantidad de ${montoTexto} (moneda nacional), valor recibido a mi entera satisfacción, en el plazo de ${p.Esquema || 'el plazo acordado'}, comprometiéndome a cubrir dicha cantidad en los términos pactados con el acreedor.`;
+            const lineasParrafo = doc.splitTextToSize(parrafo, 170);
+            doc.text(lineasParrafo, margen, y);
+            y += lineasParrafo.length * 6 + 10;
+
+            doc.setFont('helvetica', 'bold');
+            doc.text('DATOS DEL DEUDOR', margen, y); y += 7;
+            doc.setFont('helvetica', 'normal');
+            doc.text(`Nombre: ${c.nombre || '-'}`, margen, y); y += 6;
+            doc.text(`CURP/INE: ${c.INE || '-'}`, margen, y); y += 6;
+            doc.text(`Teléfono: ${c.Telefono || '-'}`, margen, y); y += 6;
+            doc.text(`Domicilio: ${c.Direccion || '-'}`, margen, y); y += 12;
+
+            doc.setFont('helvetica', 'bold');
+            doc.text('DATOS DEL AVAL', margen, y); y += 7;
+            doc.setFont('helvetica', 'normal');
+            doc.text(`Nombre: ${p.Aval_Nombre || '-'}`, margen, y); y += 6;
+            doc.text(`Teléfono: ${p.Aval_Tel || '-'}`, margen, y); y += 6;
+            doc.text(`Domicilio: ${p.Aval_Dir || '-'}`, margen, y); y += 20;
+
+            doc.line(margen, y, margen + 70, y);
+            doc.text('Firma del Deudor', margen, y + 5);
+
+            doc.line(120, y, 190, y);
+            doc.text('Firma del Aval', 120, y + 5);
+            y += 25;
+
+            doc.setFont('helvetica', 'bold');
+            doc.text('TESTIGOS (Referencias)', margen, y); y += 8;
+            doc.setFont('helvetica', 'normal');
+            doc.text(`1. ${p.Ref1_Nombre || '-'}  Tel: ${p.Ref1_Tel || '-'}`, margen, y); y += 6;
+            doc.line(margen, y + 6, margen + 70, y + 6);
+            doc.text('Firma', margen, y + 11);
+            y += 20;
+
+            doc.text(`2. ${p.Ref2_Nombre || '-'}  Tel: ${p.Ref2_Tel || '-'}`, margen, y); y += 6;
+            doc.line(margen, y + 6, margen + 70, y + 6);
+            doc.text('Firma', margen, y + 11);
+
+            doc.save(`Pagare_${p.Folio || p.id}_${c.nombre.replace(/\s+/g,'_')}.pdf`);
+        }
+
+        let documentoPrestamoId = null;
+
+        async function abrirDocumentos(prestamoId) {
+            const p = ultimosPrestamos.find(x => x.id === prestamoId);
+            if (!p) return alert('No se encontró el préstamo.');
+
+            documentoPrestamoId = prestamoId;
+            document.getElementById('docFolio').innerText = p.Folio || ('#' + p.id);
+            document.getElementById('docPagareInput').value = '';
+            document.getElementById('docIneFrenteInput').value = '';
+            document.getElementById('docIneReversoInput').value = '';
+
+            await actualizarLinkDocumento('docPagareLink', p.Pagare_Path);
+            await actualizarLinkDocumento('docIneFrenteLink', p.Ine_Frente_Path);
+            await actualizarLinkDocumento('docIneReversoLink', p.Ine_Reverso_Path);
+
+            document.getElementById('modalDocumentos').classList.remove('hidden');
+        }
+
+        async function actualizarLinkDocumento(linkId, path) {
+            const link = document.getElementById(linkId);
+            if (!path) { link.classList.add('hidden'); return; }
+            const { data, error } = await db.storage.from('documentos-prestamos').createSignedUrl(path, 3600);
+            if (error || !data) { link.classList.add('hidden'); return; }
+            link.href = data.signedUrl;
+            link.classList.remove('hidden');
+        }
+
+        async function subirArchivoPrestamo(prestamoId, file, nombreBase) {
+            const ext = file.name.split('.').pop();
+            const path = `prestamo_${prestamoId}/${nombreBase}.${ext}`;
+            const { error: upErr } = await db.storage.from('documentos-prestamos').upload(path, file, { upsert: true });
+            if (upErr) throw upErr;
+            return path;
+        }
+
+        async function guardarDocumentos() {
+            if (!documentoPrestamoId) return;
+            const pagareFile = document.getElementById('docPagareInput').files[0];
+            const ineFrenteFile = document.getElementById('docIneFrenteInput').files[0];
+            const ineReversoFile = document.getElementById('docIneReversoInput').files[0];
+
+            if (!pagareFile && !ineFrenteFile && !ineReversoFile) {
+                return alert('Selecciona al menos un archivo para subir.');
+            }
+
+            const updates = {};
+            try {
+                if (pagareFile) updates.Pagare_Path = await subirArchivoPrestamo(documentoPrestamoId, pagareFile, 'pagare');
+                if (ineFrenteFile) updates.Ine_Frente_Path = await subirArchivoPrestamo(documentoPrestamoId, ineFrenteFile, 'ine_frente');
+                if (ineReversoFile) updates.Ine_Reverso_Path = await subirArchivoPrestamo(documentoPrestamoId, ineReversoFile, 'ine_reverso');
+            } catch (e) {
+                console.error('Error subiendo archivo:', e);
+                return alert('⚠️ No se pudo subir el archivo: ' + e.message);
+            }
+
+            const { error: updErr } = await db.from('Prestamos').update(updates).eq('id', documentoPrestamoId);
+            if (updErr) {
+                console.error('Error guardando referencia de archivo:', updErr);
+                return alert('⚠️ El archivo se subió pero no se pudo vincular al préstamo: ' + updErr.message);
+            }
+
+            alert('✅ Documentos guardados.');
+            document.getElementById('modalDocumentos').classList.add('hidden');
+            renderLoans();
+        }
+
+        function verAval(prestamoId) {
+            const p = ultimosPrestamos.find(x => x.id === prestamoId);
+            if (!p) return alert('No se encontró la información de este préstamo.');
+
+            document.getElementById('avalFolio').innerText = p.Folio || ('#' + p.id);
+            document.getElementById('avalNombreView').innerText = p.Aval_Nombre || '-';
+            document.getElementById('avalTelView').innerText = p.Aval_Tel || '-';
+            document.getElementById('avalDirView').innerText = p.Aval_Dir || '-';
+            document.getElementById('ref1NombreView').innerText = p.Ref1_Nombre || '-';
+            document.getElementById('ref1TelView').innerText = p.Ref1_Tel || '-';
+            document.getElementById('ref1RelView').innerText = p.Ref1_Relacion || '-';
+            document.getElementById('ref2NombreView').innerText = p.Ref2_Nombre || '-';
+            document.getElementById('ref2TelView').innerText = p.Ref2_Tel || '-';
+            document.getElementById('ref2RelView').innerText = p.Ref2_Relacion || '-';
+
+            document.getElementById('modalVerAval').classList.remove('hidden');
         }
 
         async function aprobarPrestamo(id) {
@@ -906,36 +1064,39 @@
         }
 
         async function renderValidaciones() {
-            const { data } = await db.from('Pagos').select('*, Prestamos(*, Clientes(*))');
+            const { data, error } = await db.rpc('listar_pagos');
+            if (error) console.error('Error listando pagos:', error);
             const tbody = document.getElementById('valTableBody');
             tbody.innerHTML = '';
 
             if (data) {
                 data.forEach(pg => {
                     const esAdmin = userProfile.rol === 'admin';
+                    const validado = pg.Estatus === 'Validado';
                     tbody.innerHTML += `
                         <tr>
                             <td class="p-3 text-xs">${pg.Fecha}</td>
-                            <td class="p-3">#${pg.Prestamo_Id} (${pg.Prestamos?.Clientes?.nombre})</td>
+                            <td class="p-3">${pg.Folio || '#' + pg.Prestamo_Id} (${pg.cliente_nombre || 'Cliente'})</td>
                             <td class="p-3 font-bold text-emerald-700">$${pg.Monto_Total} MXN</td>
-                            <td class="p-3"><span class="bg-amber-100 text-amber-800 text-xs px-2 py-0.5 rounded font-bold">En Revisión</span></td>
+                            <td class="p-3">${validado
+                                ? '<span class="bg-emerald-100 text-emerald-800 text-xs px-2 py-0.5 rounded font-bold">Validado</span>'
+                                : '<span class="bg-amber-100 text-amber-800 text-xs px-2 py-0.5 rounded font-bold">En Revisión</span>'}</td>
                             <td class="p-3 text-right">
-                                ${esAdmin ? `<button onclick="validarPago(${pg.id}, ${pg.Prestamo_Id}, ${pg.Monto_Total})" class="bg-blue-600 text-white text-xs px-2 py-1 rounded font-bold">Aprobar</button>` : '<span class="text-xs text-slate-400">Verificando</span>'}
+                                ${esAdmin && !validado ? `<button onclick="validarPago(${pg.id})" class="bg-blue-600 text-white text-xs px-2 py-1 rounded font-bold">Aprobar</button>` : ''}
                             </td>
                         </tr>`;
                 });
             }
         }
 
-        async function validarPago(pagoId, prestamoId, monto) {
-            const { data: p } = await db.from('Prestamos').select('*').eq('id', prestamoId).single();
-            if(!p) return;
-
-            let capital = monto > p.Interes_Fijo ? monto - p.Interes_Fijo : 0;
-            let nuevoSaldo = Math.max(0, p.Saldo_Capital - capital);
-
-            await db.from('Prestamos').update({ Saldo_Capital: nuevoSaldo }).eq('id', prestamoId);
-            alert('Pago validado.');
+        async function validarPago(pagoId) {
+            if (!confirm('¿Confirmar este pago? Se descontará del saldo del préstamo.')) return;
+            const { error } = await db.rpc('validar_pago', { p_pago_id: pagoId });
+            if (error) {
+                console.error('Error validando pago:', error);
+                return alert('⚠️ No se pudo validar: ' + error.message);
+            }
+            alert('Pago validado y saldo actualizado.');
             renderLoans();
             renderValidaciones();
         }
@@ -966,5 +1127,61 @@
             }
         })();
     </script>
+    <div id="modalVerAval" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-xl shadow-2xl p-6 w-full max-w-lg">
+            <h3 class="font-bold text-lg mb-4">Aval y Referencias del Préstamo <span id="avalFolio"></span></h3>
+            <div class="space-y-4 text-sm max-h-[70vh] overflow-y-auto">
+                <div class="bg-slate-50 p-3 rounded-lg border">
+                    <p class="font-bold text-slate-700 mb-1">Aval</p>
+                    <p><strong>Nombre:</strong> <span id="avalNombreView">-</span></p>
+                    <p><strong>Teléfono:</strong> <span id="avalTelView">-</span></p>
+                    <p><strong>Dirección:</strong> <span id="avalDirView">-</span></p>
+                </div>
+                <div class="bg-slate-50 p-3 rounded-lg border">
+                    <p class="font-bold text-slate-700 mb-1">Referencia 1</p>
+                    <p><strong>Nombre:</strong> <span id="ref1NombreView">-</span></p>
+                    <p><strong>Teléfono:</strong> <span id="ref1TelView">-</span></p>
+                    <p><strong>Relación:</strong> <span id="ref1RelView">-</span></p>
+                </div>
+                <div class="bg-slate-50 p-3 rounded-lg border">
+                    <p class="font-bold text-slate-700 mb-1">Referencia 2</p>
+                    <p><strong>Nombre:</strong> <span id="ref2NombreView">-</span></p>
+                    <p><strong>Teléfono:</strong> <span id="ref2TelView">-</span></p>
+                    <p><strong>Relación:</strong> <span id="ref2RelView">-</span></p>
+                </div>
+            </div>
+            <div class="flex justify-end pt-4 border-t mt-4">
+                <button onclick="document.getElementById('modalVerAval').classList.add('hidden')" class="bg-slate-200 text-slate-800 font-bold px-4 py-2 rounded text-xs">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modalDocumentos" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-xl shadow-2xl p-6 w-full max-w-lg">
+            <h3 class="font-bold text-lg mb-4">Documentos del Préstamo <span id="docFolio"></span></h3>
+            <div class="space-y-4 text-sm">
+                <div>
+                    <label class="block font-semibold text-slate-700 mb-1">Pagaré firmado (PDF o foto)</label>
+                    <input type="file" id="docPagareInput" accept=".pdf,image/*" class="w-full text-xs border rounded p-2">
+                    <a id="docPagareLink" href="#" target="_blank" class="hidden text-blue-600 text-xs underline">Ver archivo actual</a>
+                </div>
+                <div>
+                    <label class="block font-semibold text-slate-700 mb-1">INE - Frente</label>
+                    <input type="file" id="docIneFrenteInput" accept="image/*" class="w-full text-xs border rounded p-2">
+                    <a id="docIneFrenteLink" href="#" target="_blank" class="hidden text-blue-600 text-xs underline">Ver archivo actual</a>
+                </div>
+                <div>
+                    <label class="block font-semibold text-slate-700 mb-1">INE - Reverso</label>
+                    <input type="file" id="docIneReversoInput" accept="image/*" class="w-full text-xs border rounded p-2">
+                    <a id="docIneReversoLink" href="#" target="_blank" class="hidden text-blue-600 text-xs underline">Ver archivo actual</a>
+                </div>
+            </div>
+            <div class="flex justify-end gap-2 pt-4 border-t mt-4">
+                <button onclick="document.getElementById('modalDocumentos').classList.add('hidden')" class="bg-slate-200 text-slate-800 font-bold px-4 py-2 rounded text-xs">Cerrar</button>
+                <button onclick="guardarDocumentos()" class="bg-emerald-600 text-white font-bold px-4 py-2 rounded text-xs">Subir / Actualizar</button>
+            </div>
+        </div>
+    </div>
+
 </body>
 </html>
