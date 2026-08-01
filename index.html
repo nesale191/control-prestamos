@@ -735,7 +735,11 @@
             const plazo = parseInt(document.getElementById('loanPlazo').value) || 2;
             const inter_id = document.getElementById('loanIntermediarySelect').value || null;
 
-            await db.from('Prestamos').insert([{
+            if (!cliente_id) {
+                return alert('⚠️ Tu cuenta no está vinculada a un registro de Cliente. Contacta al administrador o vuelve a registrarte.');
+            }
+
+            const { error: loanErr } = await db.from('Prestamos').insert([{
                 Cliente_Id: cliente_id, Monto: monto, Saldo_Capital: monto,
                 Interes_Fijo: Math.floor(monto / 1000) * 100, Esquema: plazo, Intermediario_Id: inter_id,
                 Fecha: new Date().toISOString().slice(0,10),
@@ -743,6 +747,11 @@
                 Ref1_Nombre: ref1Nombre, Ref1_Tel: ref1Tel, Ref1_Relacion: ref1Rel,
                 Ref2_Nombre: ref2Nombre, Ref2_Tel: ref2Tel, Ref2_Relacion: ref2Rel
             }]);
+
+            if (loanErr) {
+                console.error('Error guardando préstamo:', loanErr);
+                return alert('⚠️ No se pudo enviar la solicitud: ' + loanErr.message);
+            }
 
             alert('Solicitud enviada. Queda pendiente de aprobación por el administrador.');
             renderLoans();
@@ -820,9 +829,14 @@
             const monto = parseFloat(document.getElementById('payAmount').value) || 0;
             const metodo = document.getElementById('payMethod').value;
 
-            await db.from('Pagos').insert([{
+            const { error: payErr } = await db.from('Pagos').insert([{
                 Prestamo_Id: prestamo_id, Monto_Total: monto, Fecha: new Date().toISOString().slice(0,10), Metodo: metodo
             }]);
+
+            if (payErr) {
+                console.error('Error registrando pago:', payErr);
+                return alert('⚠️ No se pudo enviar el pago: ' + payErr.message);
+            }
 
             alert('Pago enviado a revisión.');
             renderValidaciones();
