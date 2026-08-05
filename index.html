@@ -609,7 +609,10 @@
             renderAll();
         }
 
-        function handleLogout() { location.reload(); }
+        async function handleLogout() {
+            await db.auth.signOut();
+            location.reload();
+        }
 
         function switchTab(tab) {
             ['clientes', 'nuevo-prestamo', 'prestamos', 'pagos', 'validaciones', 'intermediarios', 'usuarios', 'bitacora'].forEach(t => {
